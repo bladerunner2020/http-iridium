@@ -77,24 +77,42 @@ var STATUS_CODES = {
 };
 
 
+var GlobalHttpDriverCount = 0;
+
 function HttpDriver() {
     var that = this;
     this.is_connected = false;
     this.httpServer = null;
+    this.httpDevice = null;
 
-    this.Driver = IR.CreateDevice(IR.DEVICE_CUSTOM_HTTP_TCP, "IridiumHttpDriver",
-        {Host: '127.0.0.1',
-            Port: 80,
-            SSL: false,
-            SendMode: IR.ALWAYS_CONNECTED,
-            DebugLevel: 0,
-            ScriptMode: IR.DIRECT_AND_SCRIPT,
-            SendCommandAttempts: 0,
-            ConnectWaitTimeMax: 3000,
-            ReceiveWaitTimeMax: 3000,
-            Login: "",
-            Password: ""
+
+    this.getHttpDevice = function() {
+        return that.httpDevice ? that.httpDevice : that.createDevice();
+    };
+
+    this.createDevice = function() {
+        GlobalHttpDriverCount++;
+
+        that.httpDevice = IR.CreateDevice(IR.DEVICE_CUSTOM_HTTP_TCP, "IridiumHttpDriver" + GlobalHttpDriverCount,
+            {Host: '127.0.0.1',
+                Port: 80,
+                SSL: false,
+                SendMode: IR.ALWAYS_CONNECTED,
+                DebugLevel: 0,
+                ScriptMode: IR.DIRECT_AND_SCRIPT,
+                SendCommandAttempts: 0,
+                ConnectWaitTimeMax: 3000,
+                ReceiveWaitTimeMax: 3000,
+                Login: "",
+                Password: ""
+            });
+
+        IR.AddListener(IR.EVENT_ONLINE, that.httpDevice, function(){
+            that.is_connected = true;
         });
+
+        return that.httpDevice;
+    };
 
     this.createServer =  function(requestListener) {
         return that.httpServer ? that.httpServer : that.httpServer = new HttpServer(http, requestListener);
@@ -105,9 +123,7 @@ function HttpDriver() {
         return new HttpRequest(that, options, callback);
     };
 
-    IR.AddListener(IR.EVENT_ONLINE, that.Driver, function(){
-        that.is_connected = true;
-    });
+
 }
 
 function HttpRequest(http, options, callback) {
@@ -116,7 +132,7 @@ function HttpRequest(http, options, callback) {
     this.HttpDriver = http;
 
     this.Host = options.host || options.hostname || 'localhost';
-    this.Port = options.port || 80;
+    this.Port = +options.port || 80;
     this.Headers = options.headers ? CopyHeaders(options.headers) : null;
     this.Method = options.method || 'GET';
     this.Path = options.path;
@@ -143,11 +159,11 @@ function HttpRequest(http, options, callback) {
 
 
     this.end = function () {
-        var driver = that.HttpDriver.Driver;
-        driver.SetParameters({Host: that.Host, Port: that.Port});
+        var device = that.HttpDriver.getHttpDevice();
+        device.SetParameters({Host: that.Host, Port: that.Port});
 
 
-        driver.SendEx({
+        device.SendEx({
             Type: that.Method,
             Url: that.Path,
             Headers: that.Headers,
@@ -174,7 +190,7 @@ function HttpRequest(http, options, callback) {
 
     this.OnReceiveText =  function(text, code, headers) {
         var response = new HttpIncomingMessage(code, headers);
-        that.callback(response);
+        if (that.callback) that.callback(response);
 
         var callbacks = response.callbacks;
         if (callbacks.data) callbacks.data(text);
@@ -234,13 +250,15 @@ function HttpServer(http, requestListener) {
 
     this.listen = function(port) {
         that.server = IR.CreateDevice(IR.DEVICE_CUSTOM_SERVER_TCP, 'IridiumHttpServer',
-            {Port: port, MaxClients: SERVER_MAX_CLIENT, SSL: false});
+            {Port: +port, MaxClients: SERVER_MAX_CLIENT, SSL: false});
 
         IR.AddListener(IR.EVENT_RECEIVE_TEXT, that.server, function(data, id){
 
             var res = new HttpServerResponse(that);
 
             var req = parseRequest(data);
+            req.client_id = id;
+            res.client_id = id;
 
             if (that.requestListener) {
                 that.requestListener(req, res);
@@ -279,7 +297,7 @@ HttpServerResponse.prototype.end = function () {
     var server = this.httpServer.server;
 
 
-    server.Send([data]);
+    server.Send([data], this.client_id);
 };
 
 
@@ -330,14 +348,27 @@ HttpServerResponse.prototype.setHeader = function(name, value) {
 };
 
 HttpServerResponse.prototype.prepareHeader = function() {
+
+    function byteLength(str) {
+        if (!str) return 0;
+        var s = str.length;
+        for (var i=str.length-1; i>=0; i--) {
+            var code = str.charCodeAt(i);
+            if (code > 0x7f && code <= 0x7ff) s++;
+            else if (code > 0x7ff && code <= 0xffff) s+=2;
+            if (code >= 0xDC00 && code <= 0xDFFF) i--; //trail surrogate
+        }
+        return s;
+    }
+
     // firstLine in the case of request is: 'GET /index.html HTTP/1.1\r\n'
     // in the case of response it is: 'HTTP/1.1 200 OK\r\n'
     if (!this._headers) this.writeHead(200, 'OK', {'Content-Type' : 'text/plain'});
 
     var statusLine = 'HTTP/1.1 ' + this.statusCode.toString() + ' ' +  this.statusMessage + CRLF;
 
-    var contentLength = this.data ? this.data.length : 0;
-    if (contentLength) this.setHeader('Content-Length', contentLength);
+    var contentLength = byteLength(this.data);
+    this.setHeader('Content-Length', contentLength);
 
     var header_str = statusLine;
     var headers = this._headers;
@@ -405,43 +436,6 @@ function escapeHeaderValue(value) {
     // Protect against response splitting. The regex test is there to
     // minimize the performance impact in the common case.
     return /[\r\n]/.test(value) ? value.replace(/[\r\n]+[ \t]*/g, '') : value;
-}
-
-function ProcessRequest(data_str) {
-    var req = {};
-    var req_arr = data_str.split('\r\n');
-
-    // _Debug('Received data=' + data_str, 'HTTP_SERVER');
-
-    if (req_arr.length <= 0) {
-        // Unsupported or invalid request
-        _Debug('Unsupported or invalid request.', 'HTTP_SERVER');
-        return;
-    }
-
-    // req1_arr[0] should be GET or POST or something
-    var req1_arr = req_arr[0].split(" ");
-    if ((req1_arr.length < 3) || (req1_arr.length >3)) {
-        // Unsupported or invalid request
-        _Debug('Unsupported or invalid request.', 'HTTP_SERVER');
-        return;
-    }
-
-    // req1_arr[2] should be HTTP/1.1 or something
-    var protocol_arr = req1_arr[2].split("/");
-    if (protocol_arr.length != 2) {
-        // Unsupported or invalid request
-        _Debug('Unsupported or invalid request.', 'HTTP_SERVER');
-        return;
-    }
-
-    req.command = req1_arr[0].trim();
-    req.uri_raw = req1_arr[1].trim(); // This field could be removed
-    req.uri = parseUri(req1_arr[1]);
-    req.protocol = protocol_arr[0].trim();
-    req.protocol_ver = protocol_arr[1].trim();
-
-    return req;
 }
 
 function parseRequest(requestString) {
