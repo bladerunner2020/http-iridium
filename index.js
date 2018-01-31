@@ -77,146 +77,109 @@ var STATUS_CODES = {
 };
 
 
-var GlobalHttpDriverCount = 0;
+var _globalHttpDriverCount = 0;
+var _globalHttpServerCount = 0;
+var _globalHttpRequestCount = 0;
+var _MAX_HTTP_REQUESTS = 65535;
 
 function HttpDriver() {
-    var that = this;
-    this.is_connected = false;
+    this.callbacks = {};
     this.httpServer = null;
     this.httpDevice = null;
-
-
-    this.getHttpDevice = function() {
-        return that.httpDevice ? that.httpDevice : that.createDevice();
-    };
-
-    this.createDevice = function() {
-        GlobalHttpDriverCount++;
-
-        that.httpDevice = IR.CreateDevice(IR.DEVICE_CUSTOM_HTTP_TCP, "IridiumHttpDriver" + GlobalHttpDriverCount,
-            {Host: '127.0.0.1',
-                Port: 80,
-                SSL: false,
-                SendMode: IR.ALWAYS_CONNECTED,
-                DebugLevel: 0,
-                ScriptMode: IR.DIRECT_AND_SCRIPT,
-                SendCommandAttempts: 0,
-                ConnectWaitTimeMax: 3000,
-                ReceiveWaitTimeMax: 3000,
-                Login: "",
-                Password: ""
-            });
-
-        IR.AddListener(IR.EVENT_ONLINE, that.httpDevice, function(){
-            that.is_connected = true;
-        });
-
-        return that.httpDevice;
-    };
-
-    this.createServer =  function(requestListener) {
-        return that.httpServer ? that.httpServer : that.httpServer = new HttpServer(http, requestListener);
-    };
-
-
-    this.request = function (options, callback) {
-        return new HttpRequest(that, options, callback);
-    };
-
-
+    this.requests = [];
 }
 
-function HttpRequest(http, options, callback) {
-    var that = this;
+HttpDriver.prototype.request = function (options, callback) {
+    var req = new HttpRequest(this, options, callback);
+    this.addRequest(req);
+    return req;
+};
 
-    this.HttpDriver = http;
+HttpDriver.prototype.createServer =  function(requestListener) {
+    return this.httpServer ? htis.httpServer : this.httpServer = new HttpServer(http, requestListener);
+};
 
-    this.Host = options.host || options.hostname || 'localhost';
-    this.Port = +options.port || 80;
-    this.Headers = options.headers ? CopyHeaders(options.headers) : null;
-    this.Method = options.method || 'GET';
-    this.Path = options.path;
+HttpDriver.prototype.on = function (event, callback) {
+    if (this.callbacks[event]) throw new Error('Callback for this event is already set: ' + event);
 
-    this.RequestTimeout = null;
-    this.requestCallback = null;
-    this.callback = callback;
-    this.Data = '';
+    this.callbacks[event] = callback;
+    return this;
+};
 
+HttpDriver.prototype.addRequest = function(req) {
+    this.requests.push(req);
+};
 
-    /**
-     *
-     * @param chunk <string> | <Buffer>
-     */
-    this.write = function (chunk) {
-        that.Data = that.Data + chunk;
+HttpDriver.prototype.removeRequest = function(req) {
+    var index = this.requests.indexOf(req);
+    if (index >=0) this.requests.splice(index, 1);
+};
 
-    };
+HttpDriver.prototype.callEvent = function(/* event, arg1, arg2 ...*/) {
+    var args = Array.prototype.slice.call(arguments, 0);
+    var event = args.shift();
+    if (this.callbacks[event]) this.callbacks[event].apply(this, args);
+};
 
-    this.setHeader =  function(name, value){
-        if (!that.Headers) that.Headers = {};
-        that.Headers[name] = value;
-    };
+HttpDriver.prototype.createDevice = function() {
+    var that  = this;
+    _globalHttpDriverCount++;
 
-
-    this.end = function () {
-        var device = that.HttpDriver.getHttpDevice();
-        device.SetParameters({Host: that.Host, Port: that.Port});
-
-
-        device.SendEx({
-            Type: that.Method,
-            Url: that.Path,
-            Headers: that.Headers,
-            Data: [that.Data],
-            cbReceiveText: that.OnReceiveText,
-            cbReceiveStartBody: that.OnReceiveStart,
-            cbReceivePartBody: that.OnReceivePartBody,
-            cbReceiveEndBody : that.OnEnd,
-            cbTimeOut: that.OnTimeout
+    this.httpDevice = IR.CreateDevice(IR.DEVICE_CUSTOM_HTTP_TCP, "IridiumHttpDriver" + _globalHttpDriverCount,
+        {Host: '127.0.0.1',
+            Port: 80,
+            SSL: false,
+            SendMode: IR.ALWAYS_CONNECTED,
+            DebugLevel: 0,
+            ScriptMode: IR.DIRECT_AND_SCRIPT,
+            SendCommandAttempts: 0,
+            ConnectWaitTimeMax: 3000,
+            ReceiveWaitTimeMax: 3000,
+            Login: "",
+            Password: ""
         });
-        that.Data = '';
-    };
 
-    this.setTimeout = function (timeout, callback) {
-        that.RequestTimeout = timeout;  //TODO: It's not used now.
-        that.requestCallback = callback;
-    };
+    IR.AddListener(IR.EVENT_ERROR, this.httpDevice, function (transport_id, local_ip, local_port, host_ip, host_port, errorCode) {
+        that.httpDevice.Disconnect();
+        
+        for (var i = that.requests.length-1; i >=0; i--) {
+            var req = that.requests[i];
+            if ((req.host == host_ip) && (req.port == host_port)) {
+                req.callEvent('error', new Error('http request error, code = ' + errorCode));
+                req.finishRequest();
+            }
+        }
+    }, this);
+
+    return this.httpDevice;
+};
+
+HttpDriver.prototype.getHttpDevice = function() {
+    return this.httpDevice ? this.httpDevice : this.createDevice();
+};
 
 
-    this.abort = function () {
-        IR.Log('Abort');
-        that.Data = '';
-    };
+function HttpRequest(http, options, callback) {
+    _globalHttpRequestCount = (_globalHttpRequestCount >= _MAX_HTTP_REQUESTS) ? 1: _globalHttpRequestCount+1;
 
-    this.OnReceiveText =  function(text, code, headers) {
-        var response = new HttpIncomingMessage(code, headers);
-        if (that.callback) that.callback(response);
+    this.httpDriver = http;
+    this.id = _globalHttpRequestCount;
 
-        var callbacks = response.callbacks;
-        if (callbacks.data) callbacks.data(text);
-        if (callbacks.end) callbacks.end();
-    };
+    this.host = options.host || options.hostname || 'localhost';
+    this.port = +options.port || 80;
+    this.headers = options.headers ? CopyHeaders(options.headers) : null;
+    this.method = options.method || 'GET';
+    this.path = options.path;
+    this.data = '';
+    
+    this.callbacks = {};
 
-    this.OnReceiveStart = function(stream) {
-
-    };
-
-    this.OnReceivePartBody = function(stream) {
-
-    };
-
-    this.on = function (event, callback) {
-
-    };
-
-    this.OnEnd = function(size) {
-    };
-
-    this.OnTimeout = function () {
-        if (that.requestCallback) that.requestCallback();
-    };
+    this.on('response', callback);
+    
 
     function CopyHeaders(headers) {
+        //TODO: not sure if it is necessary
+        
         var new_headers = {};
         for (key in headers) {
             if (headers.hasOwnProperty(key))
@@ -224,70 +187,136 @@ function HttpRequest(http, options, callback) {
         }
         return new_headers;
     }
-
 }
 
-function HttpIncomingMessage(code, headers) {
+/**
+ *
+ * @param chunk <string> | <Buffer>
+ */
+HttpRequest.prototype.write = function (chunk) {
+    this.data = this.data + chunk;
+};
+
+HttpRequest.prototype.setHeader =  function(name, value){
+    if (!this.headers) this.headers = {};
+    this.headers[name] = value;
+};
+
+HttpRequest.prototype.end = function () {
+    var device = this.httpDriver.getHttpDevice();
     var that = this;
+
+    device.SetParameters({Host: this.host, Port: this.port});
+    device.Connect(); // It's required if CreateDevice is called not at the start
+
+    device.SendEx({
+        Type: this.method,
+        Url: this.path,
+        Headers: this.headers,
+        Data: this.data? [this.data] : null,
+        cbReceiveText: this.onReceiveText.bind(this),
+        cbTimeOut: this.onTimeout.bind(this)
+    });
+    this.data = '';
+};
+
+HttpRequest.prototype.callEvent = function(/* event, arg1, arg2 ...*/) {
+    var args = Array.prototype.slice.call(arguments, 0);
+    var event = args.shift();
+    if (this.callbacks[event]) this.callbacks[event].apply(this, args);
+};
+
+HttpRequest.prototype.on = function (event, callback) {
+    if (this.callbacks[event]) throw new Error('Callback for this event is already set: ' + event);
+
+    this.callbacks[event] = callback;
+    return this;
+};
+
+HttpRequest.prototype.onReceiveText =  function(text, code, headers) {
+    var response = new HttpIncomingMessage(code, headers);
+    this.callEvent('response', response); //was: if (this.requestCallback) this.requestCallback(response);
+
+    response.callEvent('data', text);
+    response.callEvent('end');
+    this.finishRequest();
+};
+
+HttpRequest.prototype.abort = function () {
+    this.data = '';
+    this.finishRequest();
+};
+
+HttpRequest.prototype.setTimeout = function (timeout, callback) {
+    return this.on('timeout', callback);
+};
+
+HttpRequest.prototype.onTimeout = function () {
+    this.callEvent('timeout', new Error('http request timeout'));
+    this.finishRequest();
+};
+
+HttpRequest.prototype.finishRequest = function () {
+    this.httpDriver.removeRequest(this);
+};
+
+
+function HttpIncomingMessage(code, headers) {
     this.statusCode = code;
     this.headers = headers;
     this.callbacks = {};
-
-
-    this.on = function(event, callback) {
-        that.callbacks[event] = callback;
-    };
 }
+
+HttpIncomingMessage.prototype.on = function(event, callback) {
+    if (this.callbacks[event]) throw new Error('Callback for this event is already set: ' + event);
+
+    this.callbacks[event] = callback;
+    return this;
+};
+
+HttpIncomingMessage.prototype.callEvent = function(/* event, arg1, arg2 ...*/) {
+    var args = Array.prototype.slice.call(arguments, 0);
+    var event = args.shift();
+    if (this.callbacks[event]) this.callbacks[event].apply(this, args);
+};
+
 
 var SERVER_MAX_CLIENT = 10;
 
 function HttpServer(http, requestListener) {
-    var that = this;
-
     this.httpDriver = http;
     this.requestListener = requestListener;
     this.server = null;
-
-    this.listen = function(port) {
-        that.server = IR.CreateDevice(IR.DEVICE_CUSTOM_SERVER_TCP, 'IridiumHttpServer',
-            {Port: +port, MaxClients: SERVER_MAX_CLIENT, SSL: false});
-
-        IR.AddListener(IR.EVENT_RECEIVE_TEXT, that.server, function(data, id){
-
-            var res = new HttpServerResponse(that);
-
-            var req = parseRequest(data);
-            req.client_id = id;
-            res.client_id = id;
-
-            if (that.requestListener) {
-                that.requestListener(req, res);
-            }
-
-        });
-
-    };
-
 }
 
-function HttpServerResponse(httpServer) {
+HttpServer.prototype.listen = function(port) {
     var that = this;
+    this.server = IR.CreateDevice(IR.DEVICE_CUSTOM_SERVER_TCP, 'IridiumHttpServer',
+        {Port: +port, MaxClients: SERVER_MAX_CLIENT, SSL: false});
 
+    IR.AddListener(IR.EVENT_RECEIVE_TEXT, this.server, function(data, id){
+        var res = new HttpServerResponse(this);
+
+        var req = parseRequest(data);
+        req.client_id = id;
+        res.client_id = id;
+
+        if (that.requestListener) {
+            that.requestListener(req, res);
+        }
+
+    }.bind(this));
+};
+
+
+
+function HttpServerResponse(httpServer) {
     this.httpServer = httpServer;
 
     this.statusCode = null;
     this.statusMessage = null;
     this._headers = null;
     this.data = null;
-
-
-    // this.writeHead = function(statusCode, statusMessage, headers) {
-    //     that.headIsSet = true;
-    //     that.statusCode = statusCode;
-    //     that.statusMessage = statusMessage;
-    //     that.headers = headers;
-    // };
-
 }
 
 HttpServerResponse.prototype.end = function () {
