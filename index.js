@@ -527,6 +527,17 @@ function parseRequestLine(requestLineString) {
 }
 
 
+if ((typeof IR === 'object') && (typeof module === 'object')) {
+    module['http'] = new HttpDriver();
+
+    // module['http'] =  {
+    //     moduleInitializer: function () {
+    //         return new HttpDriver();
+    //     }
+    // }
+}
+
+
 
 
 
