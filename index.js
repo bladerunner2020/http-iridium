@@ -96,7 +96,7 @@ HttpDriver.prototype.request = function (options, callback) {
 };
 
 HttpDriver.prototype.createServer =  function(requestListener) {
-    return this.httpServer ? htis.httpServer : this.httpServer = new HttpServer(http, requestListener);
+    return this.httpServer ? this.httpServer : this.httpServer = new HttpServer(http, requestListener);
 };
 
 HttpDriver.prototype.on = function (event, callback) {
@@ -298,11 +298,17 @@ HttpServer.prototype.listen = function(port) {
         var res = new HttpServerResponse(this);
 
         var req = parseRequest(data);
+
         req.client_id = id;
         res.client_id = id;
 
         if (that.requestListener) {
             that.requestListener(req, res);
+        }
+
+        if (req.body) {
+            req.callEvent('data', req.body);
+            req.callEvent('end');
         }
 
     }.bind(this));
@@ -470,7 +476,8 @@ function escapeHeaderValue(value) {
 }
 
 function parseRequest(requestString) {
-    var request = {};
+    var request = new HttpIncomingMessage(); //TODO: Нужно изменить на HttpMessage?
+
     var lines = requestString.split(/\r?\n/);
 
     var parsedRequestLine = parseRequestLine(lines.shift());
