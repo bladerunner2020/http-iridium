@@ -319,7 +319,9 @@ function HttpServerResponse(httpServer) {
     this.data = null;
 }
 
-HttpServerResponse.prototype.end = function () {
+HttpServerResponse.prototype.end = function (chunk) {
+    this.write(chunk);
+
     var data = this.prepareHeader();
     if (this.data && this.data.length) data += this.data;
 
