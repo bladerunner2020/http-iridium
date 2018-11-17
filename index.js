@@ -333,8 +333,9 @@ HttpServer.prototype.listen = function(port) {
 
         if (req.body) {
             req.callEvent('data', req.body);
-            req.callEvent('end');
         }
+
+        req.callEvent('end');
 
     }.bind(this));
 };
