@@ -1,13 +1,17 @@
-(function (definition) {
-    "use strict";
-    if (typeof module !== 'undefined') module.http = definition();
-})(function () {
-    "use strict";
-    if (!this.http) this.http = new HttpDriver();
+// Module: http_iridium
+// Dependencies:
+//        "js-ext": "git+https://github.com/bladerunner2020/js-ext.git"
+//         "debug2": "git+https://github.com/bladerunner2020/debug2.git" - optional
 
-    return this.http;
-});
 
+if (typeof _DEBUGGER == 'object') {
+    _DEBUGGER.disable('HttpDriver');
+} else {
+    // Пустышки
+    var _Log = function () {};
+    var _Debug = _Log;
+    var _Error = _Log;
+}
 
 var CRLF  = '\r\n';
 
@@ -78,13 +82,11 @@ var STATUS_CODES = {
 
 
 var _globalHttpDriverCount = 0;
-var _globalHttpServerCount = 0;
 var _globalHttpRequestCount = 0;
 var _MAX_HTTP_REQUESTS = 65535;
 
 function HttpDriver() {
     this.callbacks = {};
-    this.httpServer = null;
     this.httpDevice = null;
     this.requests = [];
 }
@@ -96,7 +98,7 @@ HttpDriver.prototype.request = function (options, callback) {
 };
 
 HttpDriver.prototype.createServer =  function(requestListener) {
-    return this.httpServer ? this.httpServer : this.httpServer = new HttpServer(http, requestListener);
+    return new HttpServer(this, requestListener);
 };
 
 HttpDriver.prototype.on = function (event, callback) {
@@ -112,7 +114,9 @@ HttpDriver.prototype.addRequest = function(req) {
 
 HttpDriver.prototype.removeRequest = function(req) {
     var index = this.requests.indexOf(req);
-    if (index >=0) this.requests.splice(index, 1);
+    if (index >=0) {
+        this.requests.splice(index, 1);
+    }
 };
 
 HttpDriver.prototype.callEvent = function(/* event, arg1, arg2 ...*/) {
@@ -123,9 +127,9 @@ HttpDriver.prototype.callEvent = function(/* event, arg1, arg2 ...*/) {
 
 HttpDriver.prototype.createDevice = function() {
     var that  = this;
-    _globalHttpDriverCount++;
 
-    this.httpDevice = IR.CreateDevice(IR.DEVICE_CUSTOM_HTTP_TCP, "IridiumHttpDriver" + _globalHttpDriverCount,
+    // CreateDevice автоматически добавит в конце к имени счетчик, если такой дреайвер уже есть
+    this.httpDevice = IR.CreateDevice(IR.DEVICE_CUSTOM_HTTP_TCP, "IridiumHttpDriver",
         {Host: '127.0.0.1',
             Port: 80,
             SSL: false,
@@ -136,10 +140,15 @@ HttpDriver.prototype.createDevice = function() {
             ConnectWaitTimeMax: 3000,
             ReceiveWaitTimeMax: 3000,
             Login: "",
-            Password: ""
+            Password: "",
+            LogLevel: 4
         });
 
+    _Log('Create custom http tcp device: ' + this.httpDevice.Name, 'HttpDriver');
+
     IR.AddListener(IR.EVENT_ERROR, this.httpDevice, function (transport_id, local_ip, local_port, host_ip, host_port, errorCode) {
+        _Debug('EVENT_ERROR. Driver: ' + that.httpDevice.Name + '. ErrorCode: ' + errorCode, 'HttpDriver');
+        
         that.httpDevice.Disconnect();
         
         for (var i = that.requests.length-1; i >=0; i--) {
@@ -165,7 +174,11 @@ function HttpRequest(http, options, callback) {
     this.httpDriver = http;
     this.id = _globalHttpRequestCount;
 
-    this.host = options.host || options.hostname || 'localhost';
+    this.host = options.host || options.hostname || '127.0.0.1';
+    if (this.host == 'localhost') {
+        this.host = '127.0.0.1';
+    }
+
     this.port = +options.port || 80;
     this.headers = options.headers ? CopyHeaders(options.headers) : null;
     this.method = options.method || 'GET';
@@ -209,6 +222,9 @@ HttpRequest.prototype.end = function () {
     device.SetParameters({Host: this.host, Port: this.port});
     device.Connect(); // It's required if CreateDevice is called not at the start
 
+    
+    _Debug('Send to : ' + device.Name + '. Data: ' + this.data, 'HttpDriver');
+    
     device.SendEx({
         Type: this.method,
         Url: this.path,
@@ -234,6 +250,8 @@ HttpRequest.prototype.on = function (event, callback) {
 };
 
 HttpRequest.prototype.onReceiveText =  function(text, code, headers) {
+    _Debug('Http Response: ' + text, 'HttpDriver');
+    
     var response = new HttpIncomingMessage(code, headers);
     this.callEvent('response', response); //was: if (this.requestCallback) this.requestCallback(response);
 
@@ -291,10 +309,17 @@ function HttpServer(http, requestListener) {
 
 HttpServer.prototype.listen = function(port) {
     var that = this;
-    this.server = IR.CreateDevice(IR.DEVICE_CUSTOM_SERVER_TCP, 'IridiumHttpServer',
-        {Port: +port, MaxClients: SERVER_MAX_CLIENT, SSL: false});
 
+    // CreateDevice автоматически добавит в конце к имени счетчик, если такой дреайвер уже есть
+    this.server = IR.CreateDevice(IR.DEVICE_CUSTOM_SERVER_TCP, 'IridiumHttpServer',
+        {Port: +port, MaxClients: SERVER_MAX_CLIENT, SSL: false, LogLevel: 4});
+
+    
+    _Log('Create custom server tcp: ' + this.server.Name + '. listen at ' + port, 'HttpDriver');
+    
     IR.AddListener(IR.EVENT_RECEIVE_TEXT, this.server, function(data, id){
+        _Debug(that.server.Name + ' - received (' + id + '): ' + data, 'HttpDriver');
+        
         var res = new HttpServerResponse(this);
 
         var req = parseRequest(data);
@@ -315,7 +340,6 @@ HttpServer.prototype.listen = function(port) {
 };
 
 
-
 function HttpServerResponse(httpServer) {
     this.httpServer = httpServer;
 
@@ -326,7 +350,9 @@ function HttpServerResponse(httpServer) {
 }
 
 HttpServerResponse.prototype.end = function (chunk) {
-    this.write(chunk);
+    if (chunk != undefined) {
+        this.write(chunk);
+    }
 
     var data = this.prepareHeader();
     if (this.data && this.data.length) data += this.data;
@@ -538,16 +564,5 @@ function parseRequestLine(requestLineString) {
 
 if ((typeof IR === 'object') && (typeof module === 'object')) {
     module['http'] = new HttpDriver();
-
-    // module['http'] =  {
-    //     moduleInitializer: function () {
-    //         return new HttpDriver();
-    //     }
-    // }
 }
-
-
-
-
-
 
