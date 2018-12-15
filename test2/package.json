@@ -1,8 +1,8 @@
 {
-  "name": "http-test",
-  "version": "1.0.12",
+  "name": "http-iridium-test",
+  "version": "1.0.22",
   "description": "",
-  "main": "index.js",
+  "main": "app.js",
   "private": true,
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -25,13 +25,13 @@
     "grunt-zip": "^0.17.1"
   },
   "dependencies": {
-    "js-ext": "git+ssh://github.com/bladerunner2020/js-ext.git",
-    "debug2": "git+ssh://github.com/bladerunner2020/debug2.git",
-    "debug-console": "git+ssh://github.com/bladerunner2020/debug-console.git"
+    "js-ext": "git+https://github.com/bladerunner2020/js-ext.git",
+    "debug2": "git+https://github.com/bladerunner2020/debug2.git"
   },
-  "projectScripts" : [
+  "projectScripts" :
+  [
     "../index.js",
-    "scripts/app.js"
+    "app.js"
   ]
 
 }
