@@ -25,7 +25,7 @@ module.exports = function(grunt){
     var project_extension = project_name.replace(/^.*?\.([a-zA-Z0-9]+)$/, "$1");
     var project_name_no_ext = project_name.replace(/\.[^/.]+$/, "");
 
-    console.log('Building project: ' + project_name);
+    grunt.log.writeln('Building project: ' + project_name);
 
     var moduleScriptList = []; // Список глобальных скриптов проекта (модулей), указанных в dependencies
 
@@ -203,7 +203,7 @@ module.exports = function(grunt){
             var moduleJson = grunt.file.readJSON(moduleJsonPath);
             var moduleVersion  = moduleJson ? moduleJson.version : null;
             moduleScriptList.push(modulePath);
-            console.log('Script: ' + modulePath + '  (v.' + moduleVersion +')');
+            grunt.log.writeln('Script: ' + modulePath + '  (v.' + moduleVersion +')');
         }
     });
 

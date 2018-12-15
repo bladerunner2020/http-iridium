@@ -37,8 +37,8 @@ jspm_packages
 
 # Temp
 
-temp/**
-test/temp**
+/**/temp/**
+
 
 
 # Optional REPL history

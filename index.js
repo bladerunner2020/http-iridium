@@ -3,6 +3,7 @@
 //        "js-ext": "git+https://github.com/bladerunner2020/js-ext.git"
 //         "debug2": "git+https://github.com/bladerunner2020/debug2.git" - optional
 
+/* global IR, _DEBUGGER*/
 
 if (typeof _DEBUGGER == 'object') {
     _DEBUGGER.disable('HttpDriver');
@@ -10,7 +11,6 @@ if (typeof _DEBUGGER == 'object') {
     // Пустышки
     var _Log = function () {};
     var _Debug = _Log;
-    var _Error = _Log;
 }
 
 var CRLF  = '\r\n';
@@ -80,8 +80,6 @@ var STATUS_CODES = {
     511: 'Network Authentication Required' // RFC 6585
 };
 
-
-var _globalHttpDriverCount = 0;
 var _globalHttpRequestCount = 0;
 var _MAX_HTTP_REQUESTS = 65535;
 
@@ -102,7 +100,9 @@ HttpDriver.prototype.createServer =  function(requestListener) {
 };
 
 HttpDriver.prototype.on = function (event, callback) {
-    if (this.callbacks[event]) throw new Error('Callback for this event is already set: ' + event);
+    if (this.callbacks[event]) {
+        throw new Error('Callback for this event is already set: ' + event);
+    }
 
     this.callbacks[event] = callback;
     return this;
@@ -122,14 +122,16 @@ HttpDriver.prototype.removeRequest = function(req) {
 HttpDriver.prototype.callEvent = function(/* event, arg1, arg2 ...*/) {
     var args = Array.prototype.slice.call(arguments, 0);
     var event = args.shift();
-    if (this.callbacks[event]) this.callbacks[event].apply(this, args);
+    if (this.callbacks[event]) {
+        this.callbacks[event].apply(this, args);
+    }
 };
 
 HttpDriver.prototype.createDevice = function() {
     var that  = this;
 
     // CreateDevice автоматически добавит в конце к имени счетчик, если такой дреайвер уже есть
-    this.httpDevice = IR.CreateDevice(IR.DEVICE_CUSTOM_HTTP_TCP, "IridiumHttpDriver",
+    this.httpDevice = IR.CreateDevice(IR.DEVICE_CUSTOM_HTTP_TCP, 'IridiumHttpDriver',
         {Host: '127.0.0.1',
             Port: 80,
             SSL: false,
@@ -139,8 +141,8 @@ HttpDriver.prototype.createDevice = function() {
             SendCommandAttempts: 0,
             ConnectWaitTimeMax: 3000,
             ReceiveWaitTimeMax: 3000,
-            Login: "",
-            Password: "",
+            Login: '',
+            Password: '',
             LogLevel: 4
         });
 
@@ -194,9 +196,10 @@ function HttpRequest(http, options, callback) {
         //TODO: not sure if it is necessary
         
         var new_headers = {};
-        for (key in headers) {
-            if (headers.hasOwnProperty(key))
+        for (var key in headers) {
+            if (headers.hasOwnProperty(key)) {
                 new_headers[key]  = headers[key];
+            }
         }
         return new_headers;
     }
@@ -211,13 +214,18 @@ HttpRequest.prototype.write = function (chunk) {
 };
 
 HttpRequest.prototype.setHeader =  function(name, value){
-    if (!this.headers) this.headers = {};
+    if (!this.headers) {
+        this.headers = {};
+    }
     this.headers[name] = value;
 };
 
-HttpRequest.prototype.end = function () {
+HttpRequest.prototype.end = function (data) {
+    if (data) {
+        this.write(data);
+    }
+
     var device = this.httpDriver.getHttpDevice();
-    var that = this;
 
     device.SetParameters({Host: this.host, Port: this.port});
     device.Connect(); // It's required if CreateDevice is called not at the start
@@ -229,6 +237,9 @@ HttpRequest.prototype.end = function () {
         Type: this.method,
         Url: this.path,
         Headers: this.headers,
+        // Следующая строчка нужна, чтобы добавить "Connection: close" header 
+        // без нее неправильно обрабатываются GET-запросы, если в ответ приходит код 204 (нет контента)
+        KeepAliveOut: 0,
         Data: this.data? [this.data] : null,
         cbReceiveText: this.onReceiveText.bind(this),
         cbTimeOut: this.onTimeout.bind(this)
@@ -239,11 +250,15 @@ HttpRequest.prototype.end = function () {
 HttpRequest.prototype.callEvent = function(/* event, arg1, arg2 ...*/) {
     var args = Array.prototype.slice.call(arguments, 0);
     var event = args.shift();
-    if (this.callbacks[event]) this.callbacks[event].apply(this, args);
+    if (this.callbacks[event]) {
+        this.callbacks[event].apply(this, args);
+    }
 };
 
 HttpRequest.prototype.on = function (event, callback) {
-    if (this.callbacks[event]) throw new Error('Callback for this event is already set: ' + event);
+    if (this.callbacks[event]) {
+        throw new Error('Callback for this event is already set: ' + event);
+    }
 
     this.callbacks[event] = callback;
     return this;
@@ -286,7 +301,9 @@ function HttpIncomingMessage(code, headers) {
 }
 
 HttpIncomingMessage.prototype.on = function(event, callback) {
-    if (this.callbacks[event]) throw new Error('Callback for this event is already set: ' + event);
+    if (this.callbacks[event]) {
+        throw new Error('Callback for this event is already set: ' + event);
+    }
 
     this.callbacks[event] = callback;
     return this;
@@ -295,7 +312,9 @@ HttpIncomingMessage.prototype.on = function(event, callback) {
 HttpIncomingMessage.prototype.callEvent = function(/* event, arg1, arg2 ...*/) {
     var args = Array.prototype.slice.call(arguments, 0);
     var event = args.shift();
-    if (this.callbacks[event]) this.callbacks[event].apply(this, args);
+    if (this.callbacks[event]) {
+        this.callbacks[event].apply(this, args);
+    }
 };
 
 
@@ -313,7 +332,6 @@ HttpServer.prototype.listen = function(port) {
     // CreateDevice автоматически добавит в конце к имени счетчик, если такой дреайвер уже есть
     this.server = IR.CreateDevice(IR.DEVICE_CUSTOM_SERVER_TCP, 'IridiumHttpServer',
         {Port: +port, MaxClients: SERVER_MAX_CLIENT, SSL: false, LogLevel: 4});
-
     
     _Log('Create custom server tcp: ' + this.server.Name + '. listen at ' + port, 'HttpDriver');
     
@@ -356,11 +374,11 @@ HttpServerResponse.prototype.end = function (chunk) {
     }
 
     var data = this.prepareHeader();
-    if (this.data && this.data.length) data += this.data;
+    if (this.data && this.data.length) {
+        data += this.data;
+    }
 
     var server = this.httpServer.server;
-
-
     server.Send([data], this.client_id);
 };
 
@@ -385,27 +403,35 @@ HttpServerResponse.prototype.writeHead = function(statusCode, reason, obj) {
         var keys = Object.keys(obj);
         for (var i = 0; i < keys.length; i++) {
             var k = keys[i];
-            if (k) this.setHeader(k, obj[k]);
+            if (k) {
+                this.setHeader(k, obj[k]);
+            }
         }
     }
 
     statusCode |= 0;
-    if (statusCode < 100 || statusCode > 999)
+    if (statusCode < 100 || statusCode > 999) {
         throw new Error('Invalid status code: ' + statusCode);
+    }
 
-    if (checkInvalidHeaderChar(this.statusMessage))
+    if (checkInvalidHeaderChar(this.statusMessage)) {
         throw new Error('Invalid character in statusMessage.');
+    }
 
 };
 
 
 HttpServerResponse.prototype.setHeader = function(name, value) {
-    if (value === undefined)
+    if (value === undefined) {
         throw new Error('"value" required in setHeader("' + name + '", value)');
-    if (this._header)
+    }
+    if (this._header) {
         throw new Error('Can\'t set headers after they are sent.');
+    }
 
-    if (this._headers === null) this._headers = {};
+    if (this._headers === null) {
+        this._headers = {};
+    }
 
     var key = name.toLowerCase();
     this._headers[key] = value;
@@ -414,20 +440,29 @@ HttpServerResponse.prototype.setHeader = function(name, value) {
 HttpServerResponse.prototype.prepareHeader = function() {
 
     function byteLength(str) {
-        if (!str) return 0;
+        if (!str) {
+            return 0;
+        }
         var s = str.length;
         for (var i=str.length-1; i>=0; i--) {
             var code = str.charCodeAt(i);
-            if (code > 0x7f && code <= 0x7ff) s++;
-            else if (code > 0x7ff && code <= 0xffff) s+=2;
-            if (code >= 0xDC00 && code <= 0xDFFF) i--; //trail surrogate
+            if (code > 0x7f && code <= 0x7ff) {
+                s++;
+            } else if (code > 0x7ff && code <= 0xffff) {
+                s+=2;
+            }
+            if (code >= 0xDC00 && code <= 0xDFFF) {
+                i--; //trail surrogate
+            }
         }
         return s;
     }
 
     // firstLine in the case of request is: 'GET /index.html HTTP/1.1\r\n'
     // in the case of response it is: 'HTTP/1.1 200 OK\r\n'
-    if (!this._headers) this.writeHead(200, 'OK', {'Content-Type' : 'text/plain'});
+    if (!this._headers) {
+        this.writeHead(200, 'OK', {'Content-Type' : 'text/plain'});
+    }
 
     var statusLine = 'HTTP/1.1 ' + this.statusCode.toString() + ' ' +  this.statusMessage + CRLF;
 
@@ -473,25 +508,32 @@ HttpServerResponse.prototype.prepareHeader = function() {
 
 function checkInvalidHeaderChar(val) {
     val += '';
-    if (val.length < 1)
+    if (val.length < 1) {
         return false;
+    }
     var c = val.charCodeAt(0);
-    if ((c <= 31 && c !== 9) || c > 255 || c === 127)
+    if ((c <= 31 && c !== 9) || c > 255 || c === 127) {
         return true;
-    if (val.length < 2)
+    }
+    if (val.length < 2) {
         return false;
+    }
     c = val.charCodeAt(1);
-    if ((c <= 31 && c !== 9) || c > 255 || c === 127)
+    if ((c <= 31 && c !== 9) || c > 255 || c === 127) {
         return true;
-    if (val.length < 3)
+    }
+    if (val.length < 3) {
         return false;
+    }
     c = val.charCodeAt(2);
-    if ((c <= 31 && c !== 9) || c > 255 || c === 127)
+    if ((c <= 31 && c !== 9) || c > 255 || c === 127) {
         return true;
+    }
     for (var i = 3; i < val.length; ++i) {
         c = val.charCodeAt(i);
-        if ((c <= 31 && c !== 9) || c > 255 || c === 127)
+        if ((c <= 31 && c !== 9) || c > 255 || c === 127) {
             return true;
+        }
     }
     return false;
 }
@@ -515,7 +557,9 @@ function parseRequest(requestString) {
     var headerLines = [];
     while (lines.length > 0) {
         var line = lines.shift();
-        if (line == '') break;
+        if (line == '') {
+            break;
+        }
         headerLines.push(line);
     }
 
@@ -527,16 +571,17 @@ function parseRequest(requestString) {
 
 function parseHeaders (headerLines) {
     var headers = {};
-    for (var i= 0; i < headerLines.length; i++){
+    for (var i = 0; i < headerLines.length; i++){
         var line = headerLines[i];
-        var parts = line.split(":");
+        var parts = line.split(':');
         var key = parts.shift();
-        headers[key] = parts.join(":").trim();
+        headers[key] = parts.join(':').trim();
     }
 
     return headers;
 }
 
+// eslint-disable-next-line no-unused-vars
 function parseStatusLine(statusLine) {
     var parts = statusLine.match(/^(.+) ([0-9]{3}) (.*)$/);
     var parsed = {};
@@ -562,8 +607,6 @@ function parseRequestLine(requestLineString) {
     return parsed;
 }
 
-
 if ((typeof IR === 'object') && (typeof module === 'object')) {
     module['http'] = new HttpDriver();
 }
-

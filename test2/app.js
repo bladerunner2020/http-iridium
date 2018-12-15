@@ -1,5 +1,10 @@
+// Этот тестовый файл должен работать как в Node JS, так и в Iridium'е
+
+/* global _DEBUGGER, SimpleDebugConsole */
+
 if (typeof IR == 'undefined') {
     var IR = {};
+    // eslint-disable-next-line no-console
     IR.Log = console.log;
 }
 if (typeof _DEBUGGER == 'object') {
