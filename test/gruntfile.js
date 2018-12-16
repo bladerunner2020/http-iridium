@@ -4,14 +4,24 @@ module.exports = function(grunt){
 
     function getPackageValue(value, fileName) {
         var package_json = grunt.config.get('pkg') || grunt.file.readJSON(fileName || 'package.json');
-        return package_json? package_json[value] : null
+        return package_json? package_json[value] : null;
     }
 
     function buildScriptList() {
         var scriptList = getPackageValue('projectScripts');
-        scriptList.unshift("temp/scripts/main.js");
+        scriptList.unshift('temp/scripts/main.js');
 
-        console.log('Local scripts: ' + scriptList);
+        scriptList.forEach(function(item){
+
+            var path = item;
+            if ((path.indexOf('main.js') == -1) && !grunt.file.exists(path)) {
+                // Завершаем grunt-cкрипт с ошибкой
+                grunt.fail.warn('Script not found: ' + path);
+            }
+
+            grunt.log.writeln('Adding: ' + path);
+
+        });
 
         return scriptList;
     }
@@ -22,18 +32,18 @@ module.exports = function(grunt){
 
     if (!project_name) grunt.fail.fatal('No project.]');
 
-    var project_extension = project_name.replace(/^.*?\.([a-zA-Z0-9]+)$/, "$1");
-    var project_name_no_ext = project_name.replace(/\.[^/.]+$/, "");
+    var project_extension = project_name.replace(/^.*?\.([a-zA-Z0-9]+)$/, '$1');
+    var project_name_no_ext = project_name.replace(/\.[^/.]+$/, '');
 
-    console.log('Building project: ' + project_name);
+    grunt.log.writeln('Building project: ' + project_name);
 
     var moduleScriptList = []; // Список глобальных скриптов проекта (модулей), указанных в dependencies
 
 
     grunt.config.init({
-        pkg: grunt.file.readJSON("package.json"),
+        pkg: grunt.file.readJSON('package.json'),
         readpkg: {
-            general : {}
+            general: {}
 
         },
         version: {
@@ -41,9 +51,18 @@ module.exports = function(grunt){
                 src: ['package.json']
             }
         },
-        script_list : {
-            dev : {},
-            release :{}
+        chmod: {
+            mainRO : {
+                options: {
+                    mode : '444'
+                },
+                src: ['temp/scripts/main.js']
+            }
+        },
+
+        script_list: {
+            dev: {},
+            release: {}
         },
         bump: {
             options: {
@@ -68,8 +87,8 @@ module.exports = function(grunt){
             options: {
                 blocks: [
                     {
-                        start_block: "/* begin-strip-block */",
-                        end_block: "/* end-strip-block */"
+                        start_block: '/* begin-strip-block */',
+                        end_block: '/* end-strip-block */'
                     }
                 ]
             },
@@ -136,7 +155,7 @@ module.exports = function(grunt){
         },
         clean: {
             all: {
-                src: [ 'temp', 'build' ]
+                src: [ 'temp', 'build/*' + project_extension ]
             },
             prepare:{
                 src: [ 'temp/*' + project_extension, 'temp/scripts/*.js']
@@ -177,17 +196,19 @@ module.exports = function(grunt){
     grunt.loadNpmTasks('grunt-version');
     grunt.loadNpmTasks('grunt-strip-code');
     grunt.loadNpmTasks('grunt-string-replace');
+    grunt.loadNpmTasks('grunt-chmod');
 
     // Общий скрипт проекта состоит из глобальных скриптов (модулей), прописанных в dependencies
     // и локальных скриптов прописанных projectScripts
 
+    // eslint-disable-next-line no-unused-vars
     grunt.registerMultiTask('script_list', 'Building scripts list', function(name, value){
         // Создаем массив модулей, прописанных в dependencies
         // Предполагается, что модуль состоит из одного файла index.js
 
         var dependencies = getPackageValue('dependencies');
 
-        for (obj in dependencies){
+        for (var obj in dependencies){
             var modulePath = 'node_modules/' + obj + '/index.js';
             var moduleJsonPath = 'node_modules/' + obj + '/package.json';
             if (!grunt.file.exists(modulePath)) {
@@ -203,7 +224,7 @@ module.exports = function(grunt){
             var moduleJson = grunt.file.readJSON(moduleJsonPath);
             var moduleVersion  = moduleJson ? moduleJson.version : null;
             moduleScriptList.push(modulePath);
-            console.log('Script: ' + modulePath + '  (v.' + moduleVersion +')');
+            grunt.log.writeln('Script: ' + modulePath + '  (v.' + moduleVersion +')');
         }
     });
 
@@ -218,11 +239,14 @@ module.exports = function(grunt){
 
     grunt.registerTask('build_script', ['script_list:dev',
         'clean:all', 'copy:irpz', 'unzip', 'clean:prepare', 'concat', 'strip_code',
-        'version:project:patch', 'readpkg', 'string-replace']);
+        'version:project:patch', 'readpkg', 'string-replace', 'chmod:mainRO']);
 
     grunt.registerTask('build', ['script_list:dev',
         'clean:all', 'fileExists','copy:irpz', 'unzip', 'clean:prepare', 'concat', 'strip_code',
-        'version:project:patch', 'readpkg', 'string-replace','compress', 'rename']);
+        'version:project:patch', 'readpkg', 'string-replace', 'chmod:mainRO', 'compress', 'rename']);
 
     grunt.registerTask('build_from_temp', ['compress', 'rename']);
+
+    grunt.registerTask('clear', ['clean:all']);
 };
+

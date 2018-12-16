@@ -6,11 +6,10 @@
 /* global IR, _DEBUGGER*/
 
 if (typeof _DEBUGGER == 'object') {
-    _DEBUGGER.disable('HttpDriver');
+    _DEBUGGER.disable('HttpDriver', 'DEBUG');
 } else {
     // Пустышки
-    var _Log = function () {};
-    var _Debug = _Log;
+    var _Debug = function () {};
 }
 
 var CRLF  = '\r\n';
@@ -83,6 +82,11 @@ var STATUS_CODES = {
 var _globalHttpRequestCount = 0;
 var _MAX_HTTP_REQUESTS = 65535;
 
+var HTTP_DRIVER_REQUEST_NOT_READY = 0;
+var HTTP_DRIVER_REQUEST_READY = 1;
+var HTTP_DRIVER_REQUEST_EXECUTING = 0;
+
+
 function HttpDriver() {
     this.callbacks = {};
     this.httpDevice = null;
@@ -117,7 +121,77 @@ HttpDriver.prototype.removeRequest = function(req) {
     if (index >=0) {
         this.requests.splice(index, 1);
     }
+    this.executeNext();
 };
+
+HttpDriver.prototype.executeNext = function() {
+    var req = null;
+
+    // Ищем request с флагом execStatus = ready to execute
+    for (var i = 0; i < this.requests.length; i++) {
+        if (this.requests[i].execStatus == HTTP_DRIVER_REQUEST_READY) { 
+            req = this.requests[i];
+            // тут нельзя ставить break!
+        } else if (this.requests[i].execStatus == HTTP_DRIVER_REQUEST_EXECUTING) {
+            // Если есть запросы в обработке, то ждем их выполнения
+            _Debug('Another reuest is executing. Wait.', 'HttpDriver');
+            return;
+        }
+    }
+    if (!req) { 
+        _Debug('No requests in the queue', 'HttpDriver');
+        return; 
+    }
+
+    // устанавливаем флаг executing
+    req.execStatus = HTTP_DRIVER_REQUEST_EXECUTING;
+
+    var httpDevice = this.getHttpDevice();
+
+    httpDevice.SetParameters({Host: req.host, Port: req.port});
+    httpDevice.Connect(); // It's required if CreateDevice is called not at the start
+
+    _Debug('Execute request: ' + req.host + ':' + req.port + req.path, 'HttpDriver');
+
+    httpDevice.SendEx({
+        Type: req.method,
+        Url: req.path,
+        Headers: req.headers,
+        // Следующая строчка нужна, чтобы добавить "Connection: close" header 
+        // без нее неправильно обрабатываются GET-запросы, если в ответ приходит код 204 (нет контента)
+        KeepAliveOut: 0,
+        Data: req.data? [req.data] : null,
+        cbReceiveText: onReceiveText.bind({request: req, http: this}),
+        cbTimeOut: onTimeout.bind({request: req})
+    });
+};
+
+/**
+ * @this {request}
+ */
+function onTimeout() {
+    this.request.callEvent('timeout', new Error('http request timeout'));
+    this.request.finishRequest();
+}
+
+/**
+ * 
+ * @param {*} text 
+ * @param {*} code 
+ * @param {*} headers 
+ * @this {request, http}
+ */
+function onReceiveText(text, code, headers) {
+    _Debug('Http Response: ' + text, 'HttpDriver');
+    
+    var response = new HttpIncomingMessage(code, headers);
+    this.request.callEvent('response', response); 
+    response.callEvent('data', text);
+    response.callEvent('end');
+    this.request.finishRequest();
+
+    // this.http.executeNext();
+}
 
 HttpDriver.prototype.callEvent = function(/* event, arg1, arg2 ...*/) {
     var args = Array.prototype.slice.call(arguments, 0);
@@ -146,16 +220,16 @@ HttpDriver.prototype.createDevice = function() {
             LogLevel: 4
         });
 
-    _Log('Create custom http tcp device: ' + this.httpDevice.Name, 'HttpDriver');
+    _Debug('Create custom http tcp device: ' + this.httpDevice.Name, 'HttpDriver');
 
     IR.AddListener(IR.EVENT_ERROR, this.httpDevice, function (transport_id, local_ip, local_port, host_ip, host_port, errorCode) {
-        _Debug('EVENT_ERROR. Driver: ' + that.httpDevice.Name + '. ErrorCode: ' + errorCode, 'HttpDriver');
+        _Debug('EVENT_ERROR. Driver: ' + that.httpDevice.Name + '. ErrorCode: ' + errorCode + ' (' + host_ip + ':' + host_port + ')', 'HttpDriver');
         
         that.httpDevice.Disconnect();
         
         for (var i = that.requests.length-1; i >=0; i--) {
             var req = that.requests[i];
-            if ((req.host == host_ip) && (req.port == host_port)) {
+            if (req.execStatus == HTTP_DRIVER_REQUEST_EXECUTING) {
                 req.callEvent('error', new Error('http request error, code = ' + errorCode));
                 req.finishRequest();
             }
@@ -175,6 +249,7 @@ function HttpRequest(http, options, callback) {
 
     this.httpDriver = http;
     this.id = _globalHttpRequestCount;
+    this.execStatus = HTTP_DRIVER_REQUEST_NOT_READY;
 
     this.host = options.host || options.hostname || '127.0.0.1';
     if (this.host == 'localhost') {
@@ -225,27 +300,11 @@ HttpRequest.prototype.end = function (data) {
         this.write(data);
     }
 
-    var device = this.httpDriver.getHttpDevice();
-
-    device.SetParameters({Host: this.host, Port: this.port});
-    device.Connect(); // It's required if CreateDevice is called not at the start
-
-    
-    _Debug('Send to : ' + device.Name + '. Data: ' + this.data, 'HttpDriver');
-    
-    device.SendEx({
-        Type: this.method,
-        Url: this.path,
-        Headers: this.headers,
-        // Следующая строчка нужна, чтобы добавить "Connection: close" header 
-        // без нее неправильно обрабатываются GET-запросы, если в ответ приходит код 204 (нет контента)
-        KeepAliveOut: 0,
-        Data: this.data? [this.data] : null,
-        cbReceiveText: this.onReceiveText.bind(this),
-        cbTimeOut: this.onTimeout.bind(this)
-    });
-    this.data = '';
+    // устанавливаем флаг ready to execute 
+    this.execStatus = HTTP_DRIVER_REQUEST_READY;
+    this.httpDriver.executeNext();
 };
+
 
 HttpRequest.prototype.callEvent = function(/* event, arg1, arg2 ...*/) {
     var args = Array.prototype.slice.call(arguments, 0);
@@ -264,19 +323,7 @@ HttpRequest.prototype.on = function (event, callback) {
     return this;
 };
 
-HttpRequest.prototype.onReceiveText =  function(text, code, headers) {
-    _Debug('Http Response: ' + text, 'HttpDriver');
-    
-    var response = new HttpIncomingMessage(code, headers);
-    this.callEvent('response', response); //was: if (this.requestCallback) this.requestCallback(response);
-
-    response.callEvent('data', text);
-    response.callEvent('end');
-    this.finishRequest();
-};
-
 HttpRequest.prototype.abort = function () {
-    this.data = '';
     this.finishRequest();
 };
 
@@ -284,15 +331,11 @@ HttpRequest.prototype.setTimeout = function (timeout, callback) {
     return this.on('timeout', callback);
 };
 
-HttpRequest.prototype.onTimeout = function () {
-    this.callEvent('timeout', new Error('http request timeout'));
-    this.finishRequest();
-};
-
 HttpRequest.prototype.finishRequest = function () {
+    this.execStatus = HTTP_DRIVER_REQUEST_NOT_READY;
+    this.data = '';
     this.httpDriver.removeRequest(this);
 };
-
 
 function HttpIncomingMessage(code, headers) {
     this.statusCode = code;
@@ -333,7 +376,7 @@ HttpServer.prototype.listen = function(port) {
     this.server = IR.CreateDevice(IR.DEVICE_CUSTOM_SERVER_TCP, 'IridiumHttpServer',
         {Port: +port, MaxClients: SERVER_MAX_CLIENT, SSL: false, LogLevel: 4});
     
-    _Log('Create custom server tcp: ' + this.server.Name + '. listen at ' + port, 'HttpDriver');
+    _Debug('Create custom server tcp: ' + this.server.Name + '. listen at ' + port, 'HttpDriver');
     
     IR.AddListener(IR.EVENT_RECEIVE_TEXT, this.server, function(data, id){
         _Debug(that.server.Name + ' - received (' + id + '): ' + data, 'HttpDriver');
