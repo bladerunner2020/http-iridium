@@ -1,6 +1,6 @@
 {
   "name": "http-test",
-  "version": "1.0.12",
+  "version": "1.0.22",
   "description": "",
   "main": "index.js",
   "private": true,
@@ -12,6 +12,7 @@
   "devDependencies": {
     "grunt": "^1.0.1",
     "grunt-bump": "^0.8.0",
+    "grunt-chmod": "^1.1.1",
     "grunt-contrib-clean": "^1.1.0",
     "grunt-contrib-compress": "^1.4.3",
     "grunt-contrib-concat": "^1.0.1",
