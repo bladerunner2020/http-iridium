@@ -189,9 +189,7 @@ function onReceiveText(text, code, headers) {
     this.request.callEvent('response', response); 
     response.callEvent('data', text);
     response.callEvent('end');
-    this.request.finishRequest();
-
-    // this.http.executeNext();
+    this.request.finishRequest(); // По идее больше тут не нужен и его можно удалить. достаточно обработчика в onReceiveCode
 }
 
 /**
