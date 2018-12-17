@@ -162,6 +162,7 @@ HttpDriver.prototype.executeNext = function() {
         KeepAliveOut: 0,
         Data: req.data? [req.data] : null,
         cbReceiveText: onReceiveText.bind({request: req, http: this}),
+        cbReceiveCode: onReceiveCode.bind({request: req}),
         cbTimeOut: onTimeout.bind({request: req})
     });
 };
@@ -188,9 +189,18 @@ function onReceiveText(text, code, headers) {
     this.request.callEvent('response', response); 
     response.callEvent('data', text);
     response.callEvent('end');
-    this.request.finishRequest();
+    this.request.finishRequest(); // По идее больше тут не нужен и его можно удалить. достаточно обработчика в onReceiveCode
+}
 
-    // this.http.executeNext();
+/**
+ * 
+ * @param {*} code 
+ * @this {request}
+ */
+function onReceiveCode(code) {
+    _Debug('Http code received: ' + code, 'HttpDriver');
+    this.request.finishRequest();
+    //TODO: Добавить обработку различных кодово
 }
 
 HttpDriver.prototype.callEvent = function(/* event, arg1, arg2 ...*/) {
