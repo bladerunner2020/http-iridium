@@ -112,6 +112,10 @@ HttpDriver.prototype.on = function (event, callback) {
     return this;
 };
 
+HttpDriver.prototype.flushRequests = function() {
+    this.requests = [];
+};
+
 HttpDriver.prototype.addRequest = function(req) {
     this.requests.push(req);
 };
