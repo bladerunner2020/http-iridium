@@ -135,10 +135,10 @@ HttpDriver.prototype.executeNext = function() {
     for (var i = 0; i < this.requests.length; i++) {
         if (this.requests[i].execStatus == HTTP_DRIVER_REQUEST_READY) { 
             req = this.requests[i];
-            // тут нельзя ставить break!
+            // тут нельзя ставить break - в очереди может быть запрос, который исполняется
         } else if (this.requests[i].execStatus == HTTP_DRIVER_REQUEST_EXECUTING) {
             // Если есть запросы в обработке, то ждем их выполнения
-            _Debug('Another reuest is executing. Wait.', 'HttpDriver');
+            _Debug('Another reuest is executing. Wait. (' + this.requests.length +')', 'HttpDriver');
             return;
         }
     }
