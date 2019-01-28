@@ -1,9 +1,10 @@
 // Module: http_iridium
 // Dependencies:
 //        "js-ext": "git+https://github.com/bladerunner2020/js-ext.git"
+//         "event-handler": "git+ssh://git@gitlab.com/general-modules/event-handler.git"
 //         "debug2": "git+https://github.com/bladerunner2020/debug2.git" - optional
 
-/* global IR, _DEBUGGER*/
+/* global IR, _DEBUGGER, EventHandler */
 
 if (typeof _DEBUGGER == 'object') {
     _DEBUGGER.disable('HttpDriver', 'DEBUG');
@@ -88,7 +89,8 @@ var HTTP_DRIVER_REQUEST_EXECUTING = 0;
 
 
 function HttpDriver() {
-    this.callbacks = {};
+    EventHandler.call(this);
+
     this.httpDevice = null;
     this.requests = [];
 }
@@ -103,14 +105,6 @@ HttpDriver.prototype.createServer =  function(requestListener) {
     return new HttpServer(this, requestListener);
 };
 
-HttpDriver.prototype.on = function (event, callback) {
-    if (this.callbacks[event]) {
-        throw new Error('Callback for this event is already set: ' + event);
-    }
-
-    this.callbacks[event] = callback;
-    return this;
-};
 
 HttpDriver.prototype.flushRequests = function() {
     this.requests = [];
@@ -138,7 +132,7 @@ HttpDriver.prototype.executeNext = function() {
             // тут нельзя ставить break - в очереди может быть запрос, который исполняется
         } else if (this.requests[i].execStatus == HTTP_DRIVER_REQUEST_EXECUTING) {
             // Если есть запросы в обработке, то ждем их выполнения
-            _Debug('Another reuest is executing. Wait. (' + this.requests.length +')', 'HttpDriver');
+            _Debug('Another request is executing. Wait. (' + this.requests.length +')', 'HttpDriver');
             return;
         }
     }
@@ -204,21 +198,13 @@ function onReceiveText(text, code, headers) {
 function onReceiveCode(code) {
     _Debug('Http code received: ' + code, 'HttpDriver');
     this.request.finishRequest();
-    //TODO: Добавить обработку различных кодово
+    //TODO: Добавить обработку различных кодов
 }
-
-HttpDriver.prototype.callEvent = function(/* event, arg1, arg2 ...*/) {
-    var args = Array.prototype.slice.call(arguments, 0);
-    var event = args.shift();
-    if (this.callbacks[event]) {
-        this.callbacks[event].apply(this, args);
-    }
-};
 
 HttpDriver.prototype.createDevice = function() {
     var that  = this;
 
-    // CreateDevice автоматически добавит в конце к имени счетчик, если такой дреайвер уже есть
+    // CreateDevice автоматически добавит в конце к имени счетчик, если такой драйвер уже есть
     this.httpDevice = IR.CreateDevice(IR.DEVICE_CUSTOM_HTTP_TCP, 'IridiumHttpDriver',
         {Host: '127.0.0.1',
             Port: 80,
@@ -236,7 +222,8 @@ HttpDriver.prototype.createDevice = function() {
 
     _Debug('Create custom http tcp device: ' + this.httpDevice.Name, 'HttpDriver');
 
-    IR.AddListener(IR.EVENT_ERROR, this.httpDevice, function (transport_id, local_ip, local_port, host_ip, host_port, errorCode) {
+
+    function onError(transport_id, local_ip, local_port, host_ip, host_port, errorCode) {
         _Debug('EVENT_ERROR. Driver: ' + that.httpDevice.Name + '. ErrorCode: ' + errorCode + ' (' + host_ip + ':' + host_port + ')', 'HttpDriver');
         
         that.httpDevice.Disconnect();
@@ -248,7 +235,9 @@ HttpDriver.prototype.createDevice = function() {
                 req.finishRequest();
             }
         }
-    }, this);
+    }
+
+    IR.AddListener(IR.EVENT_ERROR, this.httpDevice, onError, this);
 
     return this.httpDevice;
 };
@@ -352,28 +341,11 @@ HttpRequest.prototype.finishRequest = function () {
 };
 
 function HttpIncomingMessage(code, headers) {
+    EventHandler.call(this);
+
     this.statusCode = code;
     this.headers = headers;
-    this.callbacks = {};
 }
-
-HttpIncomingMessage.prototype.on = function(event, callback) {
-    if (this.callbacks[event]) {
-        throw new Error('Callback for this event is already set: ' + event);
-    }
-
-    this.callbacks[event] = callback;
-    return this;
-};
-
-HttpIncomingMessage.prototype.callEvent = function(/* event, arg1, arg2 ...*/) {
-    var args = Array.prototype.slice.call(arguments, 0);
-    var event = args.shift();
-    if (this.callbacks[event]) {
-        this.callbacks[event].apply(this, args);
-    }
-};
-
 
 var SERVER_MAX_CLIENT = 10;
 
@@ -386,13 +358,19 @@ function HttpServer(http, requestListener) {
 HttpServer.prototype.listen = function(port) {
     var that = this;
 
-    // CreateDevice автоматически добавит в конце к имени счетчик, если такой дреайвер уже есть
+    // CreateDevice автоматически добавит в конце к имени счетчик, если такой драйвер уже есть
     this.server = IR.CreateDevice(IR.DEVICE_CUSTOM_SERVER_TCP, 'IridiumHttpServer',
         {Port: +port, MaxClients: SERVER_MAX_CLIENT, SSL: false, LogLevel: 4});
     
     _Debug('Create custom server tcp: ' + this.server.Name + '. listen at ' + port, 'HttpDriver');
-    
-    IR.AddListener(IR.EVENT_RECEIVE_TEXT, this.server, function(data, id){
+
+    /**
+     * 
+     * @param {*} data 
+     * @param {*} id 
+     * @this
+     */
+    function onReceiveText(data, id){
         _Debug(that.server.Name + ' - received (' + id + '): ' + data, 'HttpDriver');
         
         var res = new HttpServerResponse(this);
@@ -411,8 +389,9 @@ HttpServer.prototype.listen = function(port) {
         }
 
         req.callEvent('end');
-
-    }.bind(this));
+    }
+    
+    IR.AddListener(IR.EVENT_RECEIVE_TEXT, this.server, onReceiveText, this);
 };
 
 
