@@ -6,7 +6,7 @@
 
 /* global IR, _DEBUGGER, EventHandler */
 
-if (typeof _DEBUGGER == 'object') {
+if (typeof _DEBUGGER === 'object') {
     _DEBUGGER.disable('HttpDriver', 'DEBUG');
 } else {
     // Пустышки
@@ -87,6 +87,22 @@ var HTTP_DRIVER_REQUEST_NOT_READY = 0;
 var HTTP_DRIVER_REQUEST_READY = 1;
 var HTTP_DRIVER_REQUEST_EXECUTING = 0;
 
+// Log levels
+HttpDriver.LOG_LEVEL_EMERGENCY = 0;
+HttpDriver.LOG_LEVEL_ALERT = 1;
+HttpDriver.LOG_LEVEL_CRITICAL = 2;
+HttpDriver.LOG_LEVEL_ERROR = 3;
+HttpDriver.LOG_LEVEL_WARNING = 4;
+HttpDriver.LOG_LEVEL_NOTICE = 5;
+HttpDriver.LOG_LEVEL_INFO = 6;
+HttpDriver.LOG_LEVEL_DEBUG = 7;
+HttpDriver.LOG_LEVEL_NEVER = 8;
+
+HttpDriver.setLogLevel = function(level) {
+    HttpDriver.logLevel = level;
+};
+
+HttpDriver.logLevel = HttpDriver.LOG_LEVEL_WARNING;
 
 function HttpDriver() {
     EventHandler.call(this);
@@ -94,6 +110,13 @@ function HttpDriver() {
     this.httpDevice = null;
     this.requests = [];
 }
+
+HttpDriver.prototype.setLogLevel = function (level) {
+    if (this.httpDevice) {
+        this.httpDevice.SetParameters({LogLevel: level});
+    }
+    return this;
+};
 
 HttpDriver.prototype.request = function (options, callback) {
     var req = new HttpRequest(this, options, callback);
@@ -210,14 +233,13 @@ HttpDriver.prototype.createDevice = function() {
             Port: 80,
             SSL: false,
             SendMode: IR.ALWAYS_CONNECTED,
-            DebugLevel: 0,
             ScriptMode: IR.DIRECT_AND_SCRIPT,
             SendCommandAttempts: 0,
             ConnectWaitTimeMax: 3000,
             ReceiveWaitTimeMax: 3000,
             Login: '',
             Password: '',
-            LogLevel: 4
+            LogLevel: HttpDriver.logLevel
         });
 
     _Debug('Create custom http tcp device: ' + this.httpDevice.Name, 'HttpDriver');
@@ -360,7 +382,7 @@ HttpServer.prototype.listen = function(port) {
 
     // CreateDevice автоматически добавит в конце к имени счетчик, если такой драйвер уже есть
     this.server = IR.CreateDevice(IR.DEVICE_CUSTOM_SERVER_TCP, 'IridiumHttpServer',
-        {Port: +port, MaxClients: SERVER_MAX_CLIENT, SSL: false, LogLevel: 4});
+        {Port: +port, MaxClients: SERVER_MAX_CLIENT, SSL: false, LogLevel: HttpDriver.logLevel});
     
     _Debug('Create custom server tcp: ' + this.server.Name + '. listen at ' + port, 'HttpDriver');
 

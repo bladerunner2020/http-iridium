@@ -1,6 +1,6 @@
 {
   "name": "http_iridium",
-  "version": "1.7.3",
+  "version": "1.8.0",
   "description": "",
   "main": "http_iridium.js",
   "scripts": {
@@ -10,7 +10,7 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "grunt": "^1.0.1",
-    "grunt-bump": "^0.8.0"
+    "eslint": "^5.15.1",
+    "eslint-plugin-jsdoc": "^4.1.1"
   }
 }
