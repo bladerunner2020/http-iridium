@@ -174,6 +174,27 @@ HttpDriver.prototype.executeNext = function() {
 
     _Debug('Execute request: ' + req.host + ':' + req.port + req.path, 'HttpDriver');
 
+    function onReceiveText(text, code, headers) {
+        _Debug('Http Response: ' + text, 'HttpDriver');
+        
+        var response = new HttpIncomingMessage(code, headers);
+        req.callEvent('response', response); 
+        response.callEvent('data', text);
+        response.callEvent('end');
+        req.finishRequest(); // По идее больше тут не нужен и его можно удалить. достаточно обработчика в onReceiveCode
+    }
+
+    function onReceiveCode(code) {
+        _Debug('Http code received: ' + code, 'HttpDriver');
+        req.finishRequest();
+        //TODO: Добавить обработку различных кодов
+    }
+
+    function onTimeout() {
+        req.callEvent('timeout', new Error('http request timeout'));
+        req.finishRequest();
+    }
+
     httpDevice.SendEx({
         Type: req.method,
         Url: req.path,
@@ -182,47 +203,12 @@ HttpDriver.prototype.executeNext = function() {
         // без нее неправильно обрабатываются GET-запросы, если в ответ приходит код 204 (нет контента)
         KeepAliveOut: 0,
         Data: req.data? [req.data] : null,
-        cbReceiveText: onReceiveText.bind({request: req, http: this}),
-        cbReceiveCode: onReceiveCode.bind({request: req}),
-        cbTimeOut: onTimeout.bind({request: req})
+        cbReceiveText: onReceiveText,
+        cbReceiveCode: onReceiveCode,
+        cbTimeOut: onTimeout
     });
 };
 
-/**
- * @this {request}
- */
-function onTimeout() {
-    this.request.callEvent('timeout', new Error('http request timeout'));
-    this.request.finishRequest();
-}
-
-/**
- * 
- * @param {*} text 
- * @param {*} code 
- * @param {*} headers 
- * @this {request, http}
- */
-function onReceiveText(text, code, headers) {
-    _Debug('Http Response: ' + text, 'HttpDriver');
-    
-    var response = new HttpIncomingMessage(code, headers);
-    this.request.callEvent('response', response); 
-    response.callEvent('data', text);
-    response.callEvent('end');
-    this.request.finishRequest(); // По идее больше тут не нужен и его можно удалить. достаточно обработчика в onReceiveCode
-}
-
-/**
- * 
- * @param {*} code 
- * @this {request}
- */
-function onReceiveCode(code) {
-    _Debug('Http code received: ' + code, 'HttpDriver');
-    this.request.finishRequest();
-    //TODO: Добавить обработку различных кодов
-}
 
 HttpDriver.prototype.createDevice = function() {
     var that  = this;

@@ -1,6 +1,6 @@
 {
   "name": "http_iridium",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "",
   "main": "http_iridium.js",
   "scripts": {
