@@ -9,7 +9,7 @@ HttpIridium requires the following modules:
 ## Usage
 
 Add the following scripts to your project:
-- **s-ext.js** from [js-ext](https://github.com/bladerunner2020/js-ext) to your project 
+- **js-ext.js** from [js-ext](https://github.com/bladerunner2020/js-ext) to your project 
 - **event-emitter.js** from [EventEmitter](https://github.com/bladerunner2020/event-emitter)
 - **http_iridium.js** from this project 
 
