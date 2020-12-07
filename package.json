@@ -1,14 +1,14 @@
 {
-  "name": "http_iridium",
-  "version": "1.9.0",
-  "description": "",
-  "main": "http_iridium.js",
+  "name": "http-iridium",
+  "version": "1.10.0",
+  "description": "HttpIridium allows to create an http server in Iridium projects",
+  "main": "http-iridium.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": ["iRidium Mobile", "i3pro"],
+  "author": "bladerunner2020 <pivovarov@gmail.com>",
+  "license": "MIT",
   "devDependencies": {
     "eslint": "^6.8.0",
     "eslint-config-airbnb-base": "^14.1.0",
