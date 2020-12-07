@@ -21,7 +21,7 @@ var http = new HttpIridium();
 http.createServer(function(req, res) {
   res.writeHead(200, { 'Content-Type': 'text/html ' });
   res.write('<meta content="text/html; charset=UTF-8" http-equiv="Content-Type">');
-  res.write('Привет Мир 8080!', 'utf8');
+  res.write('Hello World 8080!', 'utf8');
   res.end();
 }).listen(8080);
 ```
